@@ -1,5 +1,5 @@
 /target
 **/*.rs.bk
 
-./slimydb.iml
+slimydb.iml
 /.idea
