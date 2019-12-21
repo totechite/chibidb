@@ -1,5 +1,6 @@
 mod lexer;
 mod token;
+mod util;
 
 use crate::token::{Token};
 use crate::lexer::Lexer;
@@ -10,5 +11,4 @@ fn main() {
     println!("{:#?}", tokenlist);
     println!("{:?}",  tokenlist.pop());
     println!("{:?}",  tokenlist.pop());
-
 }

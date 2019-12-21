@@ -1,5 +1,5 @@
-use core::borrow::BorrowMut;
 use regex::Regex;
+use crate::util::{noise_scanner, is_match_command};
 use crate::token::{Token, PlainToken, Command as C, Value as V, Operator as O};
 
 #[derive(Debug)]
@@ -51,7 +51,7 @@ impl FstTokenizer {
                 tokenlist.push(PlainToken(char.to_string()));
                 break;
             }
-            if Self::noise_scanner(char) {
+            if noise_scanner(char) {
                 if String::new() == token_str { continue; }
                 tokenlist.push(PlainToken(token_str));
                 token_str = String::new();
@@ -61,10 +61,6 @@ impl FstTokenizer {
         }
         tokenlist.reverse();
         return tokenlist;
-    }
-
-    fn noise_scanner(c: &char) -> bool {
-        (&' ' == c) || (&'\n' == c) || (&',' == c)
     }
 }
 
@@ -94,7 +90,7 @@ impl ScdTokenizer {
                     token_list.push(Token::EOF);
                     break;
                 }
-                _ => {}
+                _ => { panic!("contained undefined keyword"); }
             }
         }
         return token_list;
@@ -135,25 +131,30 @@ impl ScdTokenizer {
         }
     }
 
-//    fn where_tokenize(&mut self, token_list: &mut Vec<Token>) {
-//        while let Some(pt) = self.plain_token_list.pop() {
-//            match pt.0.as_str() {
-//                _ => {
-//                    token_list.push(Token::Value(V::Condition(_)));
-//                }
-//            }
-//        }
-//    }
+    fn where_tokenize(&mut self, token_list: &mut Vec<Token>) {
+        while let Some(pt) = self.plain_token_list.pop() {
+            match pt.0.as_str() {
+                "BETWEEN" => {
+                    token_list.push(Token::Command(C::BETWEEN));
+                }
+                "LIKE" => { token_list.push(Token::Command(C::LIKE)); }
+                "AND" => { token_list.push(Token::Command(C::AND)); }
+                _ => {
+                    let expression = pt.0;
+                }
+            }
+        }
+    }
 }
 
 
 #[cfg(test)]
 mod test {
-    use crate::lexer::Tokenize;
+    use crate::lexer::{Tokenize, Lexer};
 
     #[test]
     fn test1() {
-        let mut tokenizer = Tokenize::new("SELECT * FROM table_name;");
-        tokenizer.exec();
+        let mut lexer = Lexer::new("SELECT * FROM table_name;");
+        lexer.exec();
     }
 }
