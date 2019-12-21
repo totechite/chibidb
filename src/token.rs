@@ -14,6 +14,10 @@ pub enum Command {
     SELECT,
     FROM,
     WHERE,
+    AND,
+    BETWEEN,
+    LIKE,
+    IN,
     UPDATE,
     DELETE,
     INSERT,
@@ -21,8 +25,8 @@ pub enum Command {
 
 #[derive(Debug)]
 pub enum Type {
-    Number,
-    String,
+    Number(usize),
+    String(String),
 }
 
 #[derive(Debug)]
@@ -35,10 +39,7 @@ pub enum Value {
 #[derive(Debug)]
 pub enum Operator {
     Equal(Type, Type),
-    NotEqual,
-    GreaterThan,
-    LessThan,
-    BETWEEN,
-    LIKE,
-    IN,
+    NotEqual(Type, Type),
+    GreaterThan(Type, Type),
+    LessThan(Type, Type),
 }
