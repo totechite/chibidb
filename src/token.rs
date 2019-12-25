@@ -1,5 +1,13 @@
 #[derive(Debug)]
-pub struct PlainToken(pub String);
+pub struct PlainToken {
+    pub kind: Type,
+    pub str: String,
+}
+
+pub enum PTKind {
+    String,
+    Number,
+}
 
 #[derive(Debug)]
 pub enum Token {
@@ -25,7 +33,7 @@ pub enum Command {
 
 #[derive(Debug)]
 pub enum Type {
-    Number(usize),
+    Number(isize),
     String(String),
 }
 
@@ -42,4 +50,7 @@ pub enum Operator {
     NotEqual(Type, Type),
     GreaterThan(Type, Type),
     LessThan(Type, Type),
+    EqualOrGreaterThan(Type, Type),
+    EqualOrLessThan(Type, Type),
+
 }

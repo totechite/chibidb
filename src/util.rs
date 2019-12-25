@@ -1,4 +1,4 @@
-\use std::string::ToString;
+use std::string::ToString;
 
 pub fn is_match_command<S: ToString>(s: S) -> bool {
     match s.to_string().as_str() {
@@ -13,6 +13,6 @@ pub fn is_match_command<S: ToString>(s: S) -> bool {
     }
 }
 
-pub fn noise_scanner(c: &char) -> bool {
-    (&' ' == c) || (&'\n' == c) || (&',' == c)
+pub fn noise_scanner(c: char) -> bool {
+    (' ' == c) || ('\n' == c) || (',' == c)
 }
