@@ -46,10 +46,14 @@ impl<K: PartialEq + PartialOrd + Ord + Copy + Clone + Debug + 'static, V: Partia
 
     fn split(&mut self, new_key: K, new_node: Box<dyn Node<K, V>>) {
         let mut new_root = TreeNode::new();
+//        println!("{:?}", self.root_node);
+//        println!("{:?}", new_node);
+
         new_root.keys.push(new_key);
         new_root.node.push(new_node);
         new_root.node.push(self.root_node.take_items());
         new_root.keys.sort();
+//        println!("{:?}", new_root);
 
         new_root.node.sort_by_key(|a| a.cmp_key());
         self.root_node = Box::new(new_root);
@@ -109,54 +113,59 @@ impl<K: PartialEq + PartialOrd + Ord + Copy + Clone + Debug + 'static, V: Partia
     }
 
     fn insert(&mut self, k: K, v: V) -> Option<(K, Box<dyn Node<K, V>>)> {
-        let key = k;
         for i in 1..M {
             let prev = match self.keys.get(i - 1) {
-                Some(prev) => prev <= &key,
-                None => true
+                Some(prev) => prev <= &k,
+                None => false
             };
             let now = match self.keys.get(i) {
-                Some(now) => &key < now,
-                None => true
+                Some(now) => &k < now,
+                None => false
             };
 
-            if prev && now {
-                let splited_data = self.node[i].insert(k, v.clone());
-                if let Some((new_key, new_node)) = splited_data {
-                    self.node.push(new_node);
-                    self.keys.push(new_key);
-                    self.keys.sort();
-                    self.node.sort_by_key(|a| a.cmp_key());
-                }
-                if self.keys.len() >M {
-                    return Some(self.split());
-                }
-                break;
-            } else {
-                if let None = &self.keys.get(i + 1) {
-                    if now {
-                        let splited_data = self.node[i - 1].insert(k, v.clone());
-                        if let Some((new_key, new_node)) = splited_data {
-                            self.node.insert(i, new_node);
-                            self.keys.push(new_key);
-                            self.keys.sort();
-                            self.node.sort_by_key(|a| a.cmp_key());
-                        }
-                    } else if prev {
-                        let splited_data = self.node[i].insert(k, v.clone());
-                        if let Some((new_key, new_node)) = splited_data {
+            if i == 1 {
+                if let None = self.keys.get(i) {
+                    if !prev {
+                        if let Some((new_key, new_node)) = self.node[i - 1].insert(k, v.clone()) {
                             self.node.push(new_node);
                             self.keys.push(new_key);
                             self.keys.sort();
                             self.node.sort_by_key(|a| a.cmp_key());
-                        }
+                        };
                     }
-                    if self.keys.len() > M {
-                        return Some(self.split());
-                    }
-                    break;
                 }
             }
+
+            if !prev && now {
+                if let Some((new_key, new_node)) = self.node[i - 1].insert(k, v.clone()) {
+                    self.node.push(new_node);
+                    self.keys.push(new_key);
+                    self.keys.sort();
+                    self.node.sort_by_key(|a| a.cmp_key());
+                };
+            } else if prev && !now {
+                if let None = self.keys.get(i) {
+                    if let Some((new_key, new_node)) = self.node[i].insert(k, v.clone()) {
+                        self.node.push(new_node);
+                        self.keys.push(new_key);
+                        self.keys.sort();
+                        self.node.sort_by_key(|a| a.cmp_key());
+                    };
+                } else { continue; }
+            } else if prev && now {
+                if let Some((new_key, new_node)) = self.node[i].insert(k, v.clone()) {
+                    self.node.push(new_node);
+                    self.keys.push(new_key);
+                    self.keys.sort();
+                    self.node.sort_by_key(|a| a.cmp_key());
+                } else { continue; }
+            } else { continue; };
+
+            if self.keys.len() >= M {
+                return Some(self.split());
+            } else {
+                break;
+            };
         }
         None
     }
@@ -167,13 +176,15 @@ impl<K: PartialEq + PartialOrd + Ord + Copy + Clone + Debug + 'static, V: Partia
         let return_key = self.keys.remove(M / 2);
         self.keys.sort();
         self.node.sort_by_key(|a| a.cmp_key());
-        for _ in (M / 2)..M {
+        for _ in (self.keys.len() / 2)..self.keys.len() {
             new_key.push(self.keys.pop().unwrap());
-            let node = self.node.pop().unwrap();
-            new_node.push(node);
+        }
+        for _ in (self.node.len() / 2)..self.node.len() {
+            new_node.push(self.node.pop().unwrap())
         }
         new_key.sort();
         new_node.sort_by_key(|a| a.cmp_key());
+
         (return_key, Box::new(TreeNode { keys: new_key, node: new_node }))
     }
 }
