@@ -35,7 +35,7 @@ pub trait Node<K, V>: Debug
     fn split(&mut self) -> (K, Rc<RefCell<dyn Node<K, V>>>);
     fn cmp_key(&self) -> K;
     fn take_items(&mut self) -> Rc<RefCell<dyn Node<K, V>>>;
-    fn reorg_key(&mut self) -> K;
+    fn reorg_key(&mut self, delete_key_locate: usize) -> K;
 }
 
 #[derive(Debug)]
@@ -124,6 +124,9 @@ impl<K, V> Node<K, V> for InternalNode<K, V>
             while let Some(elem) = from.borrow_mut().node.pop() {
                 self.node.push(elem);
             }
+            while let Some(elem) = from.borrow_mut().keys.pop() {
+                self.keys.push(elem);
+            }
             self.node.sort_by_key(|a| a.borrow().cmp_key());
             self.keys.sort();
         }
@@ -146,79 +149,98 @@ impl<K, V> Node<K, V> for InternalNode<K, V>
 
     fn delete(&mut self, key: K) -> Status {
         self.node.sort_by_key(|a| a.borrow().cmp_key());
-        let mut need_reorg_key = false;
         let mut node_address = {
             let mut result = self.keys.len();
             for (i, comp_key) in self.keys.iter().enumerate() {
                 if &key < comp_key { result = i; };
-                if &key == comp_key { need_reorg_key = true; };
             }
             result
         };
-        let keys_address = if node_address == self.keys.len() { node_address - 1 } else { node_address };
+
         let delete_status = self.node[node_address].borrow_mut().delete(key);
-        println!("{:?}", &delete_status);
-        if need_reorg_key {
-            self.keys.remove(keys_address);
-            println!("{:?}", node_address);
-            println!("{:?}", self);
-            self.keys.push(self.node[node_address].borrow_mut().reorg_key());
-            self.keys.sort();
-        };
-        println!("{:?}", self);
+        let mut reorg_key_frag = None;
+        for (i, k) in self.keys.iter().enumerate() {
+            if &key == k {
+                reorg_key_frag = Some(i);
+            }
+        }
+        if let Some(i) = reorg_key_frag {
+            self.reorg_key(i);
+        }
+
 
         let result = match delete_status {
-            Status::OK => delete_status,
-            Status::OK_REMOVE => {
-                let marge_node_address = if node_address == 0 { 0 } else { node_address - 1 };
-                let (n1, n2) = (self.node[marge_node_address].clone(), self.node[marge_node_address + 1].clone());
-                let shared = n1.borrow_mut().share(n2.clone());
-                if !shared {
-                    self.node.remove(node_address);
-                } else {
-                    if need_reorg_key {
-                        self.reorg_key();
-                    }
+            Status::OK_REMOVE =>
+                {
+                    if self.node[node_address].borrow().is_LeafNode() {
+                        let shared_node = if (self.node.len() - 1) == node_address { node_address - 1 } else { node_address + 1 };
+                        if !self.node[node_address].borrow_mut().share(self.node[shared_node].clone()) {
+                            if (self.node.len() - 1) == node_address {
+//                               対象が最右の場合、左隣りにmargeする
+                                self.node[node_address - 1].borrow_mut().marge(self.node[node_address].clone());
+                                self.node.remove(node_address);
+                            } else {
+//                              右隣にmargeする
+                                self.node[node_address].borrow_mut().marge(self.node[node_address + 1].clone());
+                                self.node.remove(node_address + 1);
+                            }
+                        }
+                        println!("{:?}", self);
+                        self.node.sort_by_key(|a| a.borrow().cmp_key());
+                        if M / 2 >= self.node.len() {
+                            return Status::OK_NEED_REORG;
+                        }
+                    };
+                    return Status::OK;
                 }
-                println!("{:?}", self);
-
-                if M / 2 >= self.node.len() {
-                    return Status::OK_NEED_REORG;
-                };
-                Status::OK
-            }
-            Status::OK_NEED_REORG => {
-                let marge_node_address = if node_address == 0 { 0 } else { node_address - 1 };
-                let (n1, n2) = (self.node[marge_node_address].clone(), self.node[marge_node_address + 1].clone());
-                let shared = n1.borrow_mut().share(n2.clone());
-                if shared {
-                    n1.borrow_mut().marge(n2);
-                    self.node.remove(marge_node_address + 1);
-                    self
-                };
-                self.node.sort_by_key(|a| a.borrow().cmp_key());
-
-                if n1.borrow().is_InternalNode() {
-                    //子がInternalNodeの場合
-//                    for i in node_address..self.node.len() - 1 {
-//                        self.node[node_address] = self.node.remove(node_address + 1);
-//                        self.keys[i] = self.keys.remove(node_address + 1);
-//                    }
-//                    self.node.remove(self.node.len() - 1);
+            Status::OK_NEED_REORG =>
+                {
+                    if self.node[node_address].borrow().is_InternalNode() {
+                        if (self.node.len() - 1) == node_address {
+                            // 対象が最右の場合
+                            let tmp = self.node.remove(node_address);
+                            self.marge(tmp);
+                            let tmp = self.node.remove(node_address-1);
+                            self.marge(tmp);
+                            self.node.sort_by_key(|a| a.borrow().cmp_key());
+                        } else {
+                            let tmp = self.node.remove(node_address + 1);
+                            self.marge(tmp);
+                            println!("{:?}", self);
+                            unsafe {
+                                let mut from = std::mem::transmute::<Box<Rc<RefCell<dyn Node<K, V>>>>, Box<Rc<RefCell<InternalNode<K, V>>>>>(Box::new(self.node.remove(node_address)));
+                                while let Some(elem) = from.borrow_mut().node.pop() {
+                                    self.node.push(elem);
+                                }
+                                self.node.sort_by_key(|a| a.borrow().cmp_key());
+                                self.keys.sort();
+                            }
+                        }
+                        return Status::OK_NEED_REORG;
+                    } else {
+                        let shared_node = if (self.node.len() - 1) == node_address { node_address - 1 } else { node_address + 1 };
+                        if !self.node[node_address].borrow_mut().share(self.node[shared_node].clone()) {
+                            if (self.node.len() - 1) == node_address {
+//                               対象が最右の場合、左隣りにmargeする
+                                self.node[node_address - 1].borrow_mut().marge(self.node[node_address].clone());
+                                self.node.remove(node_address);
+                            } else {
+//                              右隣にmargeする
+                                self.node[node_address].borrow_mut().marge(self.node[node_address + 1].clone());
+                                self.node.remove(node_address + 1);
+                            }
+                        }
+                    };
+                    self.node.sort_by_key(|a| a.borrow().cmp_key());
                     if M / 2 >= self.node.len() {
                         return Status::OK_NEED_REORG;
-                    };
+                    }
+                    return Status::OK;
                 }
-                if n1.borrow().is_LeafNode() {
-                    //子がLeafNodeの場合
-                    if M / 2 - 1 > self.node.len() {
-                        return Status::OK_NEED_REORG;
-                    };
-                }
-                Status::OK
-            }
+            Status::OK => delete_status,
             Status::Not_Found => delete_status
         };
+
         return result;
     }
 
@@ -320,11 +342,13 @@ impl<K, V> Node<K, V> for InternalNode<K, V>
         (return_key, new_tree.clone())
     }
 
-    fn reorg_key(&mut self) -> K {
-        let address = self.keys.len() / 2;
-        let result = self.keys.remove(address);
+    fn reorg_key(&mut self, delete_key_locate: usize) -> K {
+        let node_locate = self.keys.len();
+        let result = self.keys.remove(delete_key_locate);
         println!("{:?}", self);
-        self.keys.push(self.node[address + 1].borrow_mut().reorg_key());
+        println!("{:?}", result);
+
+        self.keys.push(self.node[self.node.len()-1].borrow_mut().reorg_key(0));
         self.keys.sort();
         return result;
     }
@@ -414,7 +438,7 @@ impl<K, V> Node<K, V> for LeafNode<K, V>
         unsafe {
             let mut from = std::mem::transmute::<Box<Rc<RefCell<dyn Node<K, V>>>>, Box<Rc<RefCell<LeafNode<K, V>>>>>(Box::new(from));
             let len = from.borrow().data.len().clone();
-            if M <= self.data.len() + len {
+            if M/2+1 <= self.data.len() + len {
                 for i in 0..(M / 2) {
                     self.data.push(from.borrow_mut().data.remove(i.clone()));
                 }
@@ -494,7 +518,7 @@ impl<K, V> Node<K, V> for LeafNode<K, V>
         (return_key, new_leaf)
     }
 
-    fn reorg_key(&mut self) -> K {
+    fn reorg_key(&mut self, delete_key_locate: usize) -> K {
         self.data[0].0
     }
 }
