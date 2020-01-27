@@ -5,7 +5,7 @@ use std::cell::{RefCell, RefMut};
 use std::any::{Any, TypeId};
 use std::ops::Deref;
 
-const M: usize = 3;
+const M: usize = 4;
 
 #[derive(Debug)]
 pub struct Btree<K, V>
@@ -35,7 +35,7 @@ pub trait Node<K, V>: Debug
     fn split(&mut self) -> (K, Rc<RefCell<dyn Node<K, V>>>);
     fn cmp_key(&self) -> K;
     fn take_items(&mut self) -> Rc<RefCell<dyn Node<K, V>>>;
-    fn reorg_key(&mut self, delete_key_locate: usize) -> K;
+    fn reorg_key(&mut self, delete_key_locate: usize) -> Option<K>;
 }
 
 #[derive(Debug)]
@@ -98,14 +98,6 @@ impl<K, V> Btree<K, V>
     }
 }
 
-enum NodePoint {
-    smaller_than_this_key,
-    bigger_than_this_key,
-    smallest,
-    biggest,
-    N_A,
-}
-
 impl<K, V> Node<K, V> for InternalNode<K, V>
     where
         K: PartialEq + PartialOrd + Ord + Copy + Clone + Debug + 'static,
@@ -125,7 +117,9 @@ impl<K, V> Node<K, V> for InternalNode<K, V>
                 self.node.push(elem);
             }
             while let Some(elem) = from.borrow_mut().keys.pop() {
-                self.keys.push(elem);
+                if !self.keys.contains(&elem) {
+                    self.keys.push(elem);
+                };
             }
             self.node.sort_by_key(|a| a.borrow().cmp_key());
             self.keys.sort();
@@ -152,10 +146,16 @@ impl<K, V> Node<K, V> for InternalNode<K, V>
         let mut node_address = {
             let mut result = self.keys.len();
             for (i, comp_key) in self.keys.iter().enumerate() {
-                if &key < comp_key { result = i; };
+                if &key < comp_key {
+                    result = i;
+                    break;
+                };
             }
             result
         };
+        println!("{:?}", &key);
+        println!("{:?}", &self.keys);
+        println!("{:?}", &node_address);
 
         let delete_status = self.node[node_address].borrow_mut().delete(key);
         let mut reorg_key_frag = None;
@@ -167,56 +167,94 @@ impl<K, V> Node<K, V> for InternalNode<K, V>
         if let Some(i) = reorg_key_frag {
             self.reorg_key(i);
         }
-
+        println!("{:?}", &delete_status);
 
         let result = match delete_status {
-            Status::OK_REMOVE =>
+            Status::Ok_REORG_LEFT =>
                 {
-                    if self.node[node_address].borrow().is_LeafNode() {
-                        let shared_node = if (self.node.len() - 1) == node_address { node_address - 1 } else { node_address + 1 };
-                        if !self.node[node_address].borrow_mut().share(self.node[shared_node].clone()) {
-                            if (self.node.len() - 1) == node_address {
-//                               対象が最右の場合、左隣りにmargeする
-                                self.node[node_address - 1].borrow_mut().marge(self.node[node_address].clone());
-                                self.node.remove(node_address);
-                            } else {
-//                              右隣にmargeする
-                                self.node[node_address].borrow_mut().marge(self.node[node_address + 1].clone());
-                                self.node.remove(node_address + 1);
-                            }
-                        }
-                        println!("{:?}", self);
-                        self.node.sort_by_key(|a| a.borrow().cmp_key());
-                        if M / 2 >= self.node.len() {
-                            return Status::OK_NEED_REORG;
-                        }
-                    };
-                    return Status::OK;
+                    let tmp = self.node.remove(node_address - 1);
+                    println!("{:?}", self);
+                    if M - 1 <= self.keys.len() {
+                        self.node[node_address].borrow_mut().marge(tmp);
+                    } else {
+                        self.marge(tmp);
+//                        if self.keys.len() >= M {
+//                            self.node.sort_by_key(|a| a.borrow().cmp_key());
+//                            let left = self.split();
+//                            self.node.push(left.1);
+//                        }
+                    }
+                    Status::OK
                 }
-            Status::OK_NEED_REORG =>
+            Status::OK_REORG_RIGHT =>
+                {
+                    let tmp = self.node.remove(node_address + 1);
+                    println!("{:?}", self);
+
+                    if M - 1 <= self.keys.len() {
+                        self.node[node_address].borrow_mut().marge(tmp);
+                    } else {
+                        self.marge(tmp);
+                    }
+                    Status::OK
+                }
+            Status::OK_REORG =>
                 {
                     if self.node[node_address].borrow().is_InternalNode() {
                         if (self.node.len() - 1) == node_address {
                             // 対象が最右の場合
-                            let tmp = self.node.remove(node_address);
-                            self.marge(tmp);
-                            let tmp = self.node.remove(node_address-1);
-                            self.marge(tmp);
-                            self.node.sort_by_key(|a| a.borrow().cmp_key());
-                        } else {
-                            let tmp = self.node.remove(node_address + 1);
-                            self.marge(tmp);
-                            println!("{:?}", self);
+                            println!("{:?}", &node_address);
                             unsafe {
-                                let mut from = std::mem::transmute::<Box<Rc<RefCell<dyn Node<K, V>>>>, Box<Rc<RefCell<InternalNode<K, V>>>>>(Box::new(self.node.remove(node_address)));
-                                while let Some(elem) = from.borrow_mut().node.pop() {
-                                    self.node.push(elem);
+                                let right = self.node.remove(node_address);
+                                let left = std::mem::transmute::<Box<Rc<RefCell<dyn Node<K, V>>>>, Box<Rc<RefCell<InternalNode<K, V>>>>>(Box::new(self.node.remove(node_address - 1)));
+                                left.borrow_mut().marge(right);
+                                println!("{:?}", &left);
+                                println!("{:?}", &self);
+
+                                if M - 1 <= self.keys.len() {
+                                    self.node.push(*left.clone());
+                                } else {
+                                    if left.borrow().keys.len() >= M {
+                                        self.node.sort_by_key(|a| a.borrow().cmp_key());
+                                        let sp = left.borrow_mut().split();
+                                        self.node.push(sp.1);
+                                        self.keys.remove(node_address - 1);
+                                        self.keys.push(sp.0);
+                                        self.node.push(*left.clone());
+                                    } else {
+                                        self.marge(*left.clone());
+                                    }
                                 }
+                                self.key_conflict_resolver(*left);
                                 self.node.sort_by_key(|a| a.borrow().cmp_key());
-                                self.keys.sort();
                             }
+                            return Status::Ok_REORG_LEFT;
+                        } else {
+                            let right = self.node.remove(node_address + 1);
+                            let mut tmp = InternalNode::new();
+                            tmp.marge(right);
+                            tmp.keys.push(tmp.node[0].borrow().cmp_key());
+                            println!("{:?}", &tmp);
+
+                            unsafe {
+                                let mut left = std::mem::transmute::<Box<Rc<RefCell<dyn Node<K, V>>>>, Box<Rc<RefCell<InternalNode<K, V>>>>>(Box::new(self.node.remove(node_address)));
+                                while let Some(elem) = left.borrow_mut().node.pop() {
+                                    tmp.node.push(elem);
+                                }
+                                tmp.node.sort_by_key(|a| a.borrow().cmp_key());
+                                tmp.keys.sort();
+                                println!("{:?}", &tmp);
+                            }
+                            let tmp = Rc::new(RefCell::new(tmp));
+                            if M - 1 <= self.keys.len() {
+                                self.node.push(tmp.clone());
+                            } else {
+                                self.marge(tmp.clone());
+                            }
+                            self.key_conflict_resolver(tmp);
+                            self.node.sort_by_key(|a| a.borrow().cmp_key());
+                            return Status::OK_REORG_RIGHT;
                         }
-                        return Status::OK_NEED_REORG;
                     } else {
                         let shared_node = if (self.node.len() - 1) == node_address { node_address - 1 } else { node_address + 1 };
                         if !self.node[node_address].borrow_mut().share(self.node[shared_node].clone()) {
@@ -228,18 +266,29 @@ impl<K, V> Node<K, V> for InternalNode<K, V>
 //                              右隣にmargeする
                                 self.node[node_address].borrow_mut().marge(self.node[node_address + 1].clone());
                                 self.node.remove(node_address + 1);
+                                self.keys.remove(node_address);
                             }
+                        } else {
+                            self.node.sort_by_key(|a| a.borrow().cmp_key());
+
+                            println!("{:?}", self);
+                            self.keys.remove(node_address);
+                            self.keys.push(self.node[shared_node].borrow().cmp_key());
+                            self.keys.sort();
+                            println!("{:?}", self);
+                            println!("{:?}", self);
                         }
                     };
                     self.node.sort_by_key(|a| a.borrow().cmp_key());
-                    if M / 2 >= self.node.len() {
-                        return Status::OK_NEED_REORG;
+                    if (M / 2) - 1 >= self.node.len() || self.node.len() == 1 {
+                        return Status::OK_REORG;
                     }
                     return Status::OK;
                 }
             Status::OK => delete_status,
             Status::Not_Found => delete_status
         };
+
 
         return result;
     }
@@ -342,15 +391,21 @@ impl<K, V> Node<K, V> for InternalNode<K, V>
         (return_key, new_tree.clone())
     }
 
-    fn reorg_key(&mut self, delete_key_locate: usize) -> K {
+    fn reorg_key(&mut self, delete_key_locate: usize) -> Option<K> {
         let node_locate = self.keys.len();
         let result = self.keys.remove(delete_key_locate);
-        println!("{:?}", self);
-        println!("{:?}", result);
-
-        self.keys.push(self.node[self.node.len()-1].borrow_mut().reorg_key(0));
+        if let Some(key) = self.node[self.node.len() - 1].borrow_mut().reorg_key(0) {
+            if !self.keys.contains(&key) {
+                self.keys.push(key);
+            };
+        } else {
+            let key = self.node[self.node.len() - 2].borrow_mut().reorg_key(0).unwrap();
+            if !self.keys.contains(&key) {
+                self.keys.push(key);
+            };
+        }
         self.keys.sort();
-        return result;
+        return Some(result);
     }
 }
 
@@ -400,13 +455,28 @@ impl<K, V> InternalNode<K, V>
             node: Vec::new(),
         }
     }
+
+    fn key_conflict_resolver(&mut self, child_node: Rc<RefCell<dyn Node<K, V>>>) {
+        if child_node.borrow().is_InternalNode() {
+            unsafe {
+                let internal = std::mem::transmute::<Box<Rc<RefCell<dyn Node<K, V>>>>, Box<Rc<RefCell<InternalNode<K, V>>>>>(Box::new(child_node));
+                for (i, key) in self.keys.iter().enumerate() {
+                    if internal.borrow().keys.contains(key) {
+                        self.keys.remove(i);
+                        break;
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
 pub enum Status {
     OK,
-    OK_REMOVE,
-    OK_NEED_REORG,
+    OK_REORG,
+    Ok_REORG_LEFT,
+    OK_REORG_RIGHT,
     Not_Found,
 }
 
@@ -429,6 +499,7 @@ impl<K, V> Node<K, V> for LeafNode<K, V>
             while let Some(elem) = from.borrow_mut().data.pop() {
                 self.data.push(elem);
             }
+            self.data.sort_by_key(|a| a.0);
             self.next_leaf = from.borrow_mut().next_leaf.take();
         }
         true
@@ -438,8 +509,8 @@ impl<K, V> Node<K, V> for LeafNode<K, V>
         unsafe {
             let mut from = std::mem::transmute::<Box<Rc<RefCell<dyn Node<K, V>>>>, Box<Rc<RefCell<LeafNode<K, V>>>>>(Box::new(from));
             let len = from.borrow().data.len().clone();
-            if M/2+1 <= self.data.len() + len {
-                for i in 0..(M / 2) {
+            if 1 != (self.data.len() + len) && (M / 2) <= self.data.len() + len {
+                for i in 0..(self.data.len() + len) / 2 {
                     self.data.push(from.borrow_mut().data.remove(i.clone()));
                 }
                 true
@@ -452,10 +523,8 @@ impl<K, V> Node<K, V> for LeafNode<K, V>
             if self.data[i].0 == key {
                 self.data.remove(i);
                 let threshold = (M / 2) - 1;
-                let status = if 0 == self.data.len() {
-                    Status::OK_REMOVE
-                } else if threshold == self.data.len() {
-                    Status::OK_NEED_REORG
+                let status = if threshold > self.data.len() || self.data.len() == 0 {
+                    Status::OK_REORG
                 } else {
                     Status::OK
                 };
@@ -518,8 +587,10 @@ impl<K, V> Node<K, V> for LeafNode<K, V>
         (return_key, new_leaf)
     }
 
-    fn reorg_key(&mut self, delete_key_locate: usize) -> K {
-        self.data[0].0
+    fn reorg_key(&mut self, delete_key_locate: usize) -> Option<K> {
+        if let Some(k_v) = self.data.get(0) {
+            Some(k_v.0)
+        } else { None }
     }
 }
 
