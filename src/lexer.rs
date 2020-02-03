@@ -1,6 +1,6 @@
 use regex::Regex;
-use crate::util::{noise_scanner, is_match_command};
-use crate::token::{Token, PlainToken, Command as C, Value as V, Operator as O, Type as T};
+use crate::util::noise_scanner;
+use crate::token::{Token, PlainToken, Command as C, Value as V, Operator as O, Type as T, TokenKind, CREATE};
 
 #[derive(Debug)]
 pub struct Lexer {
@@ -21,13 +21,12 @@ struct Tokenizer {
 impl Lexer {
     pub fn new(input: &str) -> Self {
         Lexer {
-            query_string: input.to_string()
+            query_string: input.to_String()
         }
     }
 
     pub fn exec(self) -> Vec<Token> {
         let fst_stage = SyntaxChecker::new(self.query_string.as_str()).exec();
-        println!("{:?}", fst_stage);
         Tokenizer::new(fst_stage).exec()
     }
 }
@@ -70,29 +69,29 @@ impl SyntaxChecker {
             if Regex::new("!|<|>|=").unwrap().is_match(char.to_string().as_str()) {
                 tokenlist.push(PlainToken { kind: T::String(token_str.clone()), str: token_str });
                 token_str = String::new();
-                if let Some(maybe_operater) = chars.next() {
-                    let operator_str = format!("{}{}", char, maybe_operater);
+                if let Some(maybe_operator) = chars.next() {
+                    let operator_str = format!("{}{}", char, maybe_operator);
                     match char {
                         '=' => {
-                            match maybe_operater {
+                            match maybe_operator {
                                 '=' => { tokenlist.push(PlainToken { kind: T::String(operator_str.clone()), str: operator_str }) }
                                 _ => { panic!("syntax error") }
                             }
                         }
                         '>' => {
-                            match maybe_operater {
+                            match maybe_operator {
                                 '=' => { tokenlist.push(PlainToken { kind: T::String(operator_str.clone()), str: operator_str }) }
                                 _ => { panic!("syntax error") }
                             }
                         }
                         '<' => {
-                            match maybe_operater {
+                            match maybe_operator {
                                 '=' => { tokenlist.push(PlainToken { kind: T::String(operator_str.clone()), str: operator_str }) }
                                 _ => { panic!("syntax error") }
                             }
                         }
                         '!' => {
-                            match maybe_operater {
+                            match maybe_operator {
                                 '=' => { tokenlist.push(PlainToken { kind: T::String(operator_str.clone()), str: operator_str }) }
                                 _ => { panic!("syntax error") }
                             }
@@ -125,7 +124,6 @@ impl Tokenizer {
         while let Some(pt) = self.plain_token_list.pop() {
             match pt.str.as_str() {
                 "SELECT" => {
-                    token_list.push(Token::Command(C::SELECT));
                     self.select_tokenize(&mut token_list);
                 }
                 "INSERT" => {
@@ -144,6 +142,20 @@ impl Tokenizer {
         }
         return token_list;
     }
+}
+
+impl Tokenizer {
+    //sub tokenizer
+
+    fn create_tokenize(&mut self, token_list: &mut Vec<Token>) {
+        while let Some(pt) = self.plain_token_list.pop() {
+            match pt.str.as_str() {
+                "TABLE" => { token_list.push(Token::Command(C::CREATE(CREATE::TABLE))) }
+                "DATABASE" => { token_list.push(Token::Command(C::CREATE(CREATE::TABLE))) }
+                _ => {}
+            }
+        }
+    }
 
     fn select_tokenize(&mut self, token_list: &mut Vec<Token>) {
         while let Some(pt) = self.plain_token_list.pop() {
@@ -151,13 +163,6 @@ impl Tokenizer {
                 "FROM" => {
                     token_list.push(Token::Command(C::FROM));
                     self.from_tokenize(token_list);
-                }
-                "WHERE" => {
-                    token_list.push(Token::Command(C::WHERE))
-                }
-                ";" => {
-                    token_list.push(Token::EOF);
-                    break;
                 }
                 _ => {
                     token_list.push(Token::Value(V::Column(pt.str)));
@@ -187,25 +192,30 @@ impl Tokenizer {
     fn where_tokenize(&mut self, token_list: &mut Vec<Token>) {
         while let Some(pt) = self.plain_token_list.pop() {
             match pt.str.as_str() {
-                "BETWEEN" => {
-                    token_list.push(Token::Command(C::BETWEEN));
+                "NOT" => {
+                    let expression = {
+                        let operator_kind = self.make_operator(Some(pt), None, None);
+                        V::Condition(O::NOT(Box::new(operator_kind)))
+                    };
+                    token_list.push(Token::Value(expression));
                 }
-                "LIKE" => { token_list.push(Token::Command(C::LIKE)); }
-                "AND" => { token_list.push(Token::Command(C::AND)); }
+                "AND" => {
+                    let prev_token = match token_list.pop().unwrap() {
+                        Token::Value(V::Condition(operator)) => operator,
+                        _ => panic!("error")
+                    };
+                    token_list.push(Token::Value(V::Condition(O::AND(Box::new(prev_token), Box::new(self.make_operator(None, None, None))))));
+                }
+                "OR" => {
+                    let prev_token = match token_list.pop().unwrap() {
+                        Token::Value(V::Condition(operator)) => operator,
+                        _ => panic!("error")
+                    };
+                    token_list.push(Token::Value(V::Condition(O::OR(Box::new(prev_token), Box::new(self.make_operator(None, None, None))))));
+                }
                 _ => {
                     let expression = {
-                        let maybe_left = pt;
-                        let maybe_operater = self.plain_token_list.pop().unwrap();
-                        let maybe_right = self.plain_token_list.pop().unwrap();
-                        let operator_kind = match maybe_operater.str.as_str() {
-                            "<" => O::LessThan(maybe_left.kind, maybe_right.kind),
-                            ">" => O::GreaterThan(maybe_left.kind, maybe_right.kind),
-                            "==" => O::Equal(maybe_left.kind, maybe_right.kind),
-                            "!=" => O::NotEqual(maybe_left.kind, maybe_right.kind),
-                            "<=" => O::EqualOrLessThan(maybe_left.kind, maybe_right.kind),
-                            ">=" => O::EqualOrGreaterThan(maybe_left.kind, maybe_right.kind),
-                            _ => panic!("syntax error")
-                        };
+                        let operator_kind = self.make_operator(Some(pt), None, None);
                         V::Condition(operator_kind)
                     };
                     token_list.push(Token::Value(expression));
@@ -215,13 +225,66 @@ impl Tokenizer {
     }
 }
 
+impl Tokenizer {
+    // Util
+    fn make_operator(&mut self, left: Option<PlainToken>, operator: Option<PlainToken>, right: Option<PlainToken>) -> O {
+        let maybe_left = if let Some(token) = left { token } else { self.plain_token_list.pop().unwrap() };
+        let maybe_operator = if let Some(token) = operator { token } else { self.plain_token_list.pop().unwrap() };
+        let maybe_right = if let Some(token) = right { token } else { self.plain_token_list.pop().unwrap() };
+        let operator_kind = match maybe_operator.str.as_str() {
+            "<" => O::LessThan(maybe_left.kind, maybe_right.kind),
+            ">" => O::GreaterThan(maybe_left.kind, maybe_right.kind),
+            "==" => O::Equal(maybe_left.kind, maybe_right.kind),
+            "!=" => O::NotEqual(maybe_left.kind, maybe_right.kind),
+            "<=" => O::EqualOrLessThan(maybe_left.kind, maybe_right.kind),
+            ">=" => O::EqualOrGreaterThan(maybe_left.kind, maybe_right.kind),
+            _ => panic!("syntax error")
+        };
+        return operator_kind;
+    }
+}
+
 #[cfg(test)]
 mod test {
-    use crate::lexer::{Tokenize, Lexer};
+    use crate::lexer::Lexer;
+    use crate::token::{Token, Command as C, Value as V, Type as T, Operator as O};
 
     #[test]
-    fn test1() {
-        let mut lexer = Lexer::new("SELECT * FROM table_name;");
-        lexer.exec();
+    fn operator() {
+        let maybe_output: Vec<Token> = vec![
+            Token::Command(
+                C::SELECT,
+            ),
+            Token::Value(
+                V::Column(
+                    "*".to_string(),
+                ),
+            ),
+            Token::Command(
+                C::FROM,
+            ),
+            Token::Value(
+                V::Table(
+                    "table".to_string(),
+                ),
+            ),
+            Token::Command(
+                C::WHERE,
+            ),
+            Token::Value(
+                V::Condition(
+                    O::Equal(
+                        T::String(
+                            "column".to_string(),
+                        ),
+                        T::String(
+                            "mohumohu".to_string(),
+                        ),
+                    ),
+                ),
+            ),
+        ];
+        let mut lexer = Lexer::new("SELECT * FROM table WHERE column==mohumohu;");
+        assert_eq!(maybe_output, lexer.exec());
     }
 }
