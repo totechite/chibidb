@@ -1,24 +1,12 @@
-//mod lexer;
-//mod token;
 //mod util;
 mod b_plus_tree;
 
-//use crate::lexer::Lexer;
 use crate::b_plus_tree::BPlusTree;
 use std::fmt::Debug;
 
 fn main() {
-//    let mut lexer = Lexer::new("SELECT * FROM table WHERE birth_year==2019 AND sex=='MAN';");
-//    let mut tokenlist = lexer.exec();
-//    println!("{:#?}", tokenlist);
-
     let mut btree: BPlusTree<usize, String> = b_plus_tree::BPlusTree::new();
 
-//    for i in 1..8 {
-//        let (s, b) = (40 - i * 4, 40 + i * 2);
-//        btree.insert(b, "hoge".to_string());
-//        btree.insert(s, "hoge".to_string());
-//    }
     btree.insert(10usize, "hoge".to_string());
     btree.insert(3usize, "hoge".to_string());
     btree.insert(12usize, "hoge".to_string());
@@ -38,9 +26,7 @@ fn main() {
 //    btree.delete(20);
 //    btree.delete(13);
 
-//    println!("{:#?}", btree);
     btree.update(6, "hage".to_string());
 
     println!("{:?}", btree.print());
-
 }

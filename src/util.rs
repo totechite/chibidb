@@ -13,6 +13,3 @@ pub fn is_match_command<S: ToString>(s: S) -> bool {
     }
 }
 
-pub fn noise_scanner(c: char) -> bool {
-    (' ' == c) || ('\n' == c) || (',' == c)
-}

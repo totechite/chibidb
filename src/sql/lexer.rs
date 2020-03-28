@@ -1,6 +1,10 @@
 use regex::Regex;
-use crate::util::noise_scanner;
-use crate::token::{Token, PlainToken, Command as C, Value as V, Operator as O, Type as T, TokenKind, CREATE};
+use crate::sql::token::{Token, PlainToken, Command as C, Value as V, Operator as O, Type as T, TokenKind, CREATE};
+use std::string::ToString;
+
+pub fn noise_scanner(c: char) -> bool {
+    (' ' == c) || ('\n' == c) || (',' == c)
+}
 
 #[derive(Debug)]
 pub struct Lexer {
@@ -21,7 +25,7 @@ struct Tokenizer {
 impl Lexer {
     pub fn new(input: &str) -> Self {
         Lexer {
-            query_string: input.to_String()
+            query_string: input.to_string()
         }
     }
 
@@ -124,10 +128,11 @@ impl Tokenizer {
         while let Some(pt) = self.plain_token_list.pop() {
             match pt.str.as_str() {
                 "SELECT" => {
+                    token_list.push(Token::Command(C::SELECT));
                     self.select_tokenize(&mut token_list);
                 }
                 "INSERT" => {
-                    token_list.push(Token::Command(C::INSERT))
+                    token_list.push(Token::Command(C::INSERT));
 //                  self.insert_tokenize();
                 }
                 "CREATE" => {}
@@ -246,8 +251,8 @@ impl Tokenizer {
 
 #[cfg(test)]
 mod test {
-    use crate::lexer::Lexer;
-    use crate::token::{Token, Command as C, Value as V, Type as T, Operator as O};
+    use crate::sql::token::{Token, Command as C, Value as V, Type as T, Operator as O};
+    use crate::sql::lexer::Lexer;
 
     #[test]
     fn operator() {
@@ -287,4 +292,32 @@ mod test {
         let mut lexer = Lexer::new("SELECT * FROM table WHERE column==mohumohu;");
         assert_eq!(maybe_output, lexer.exec());
     }
+
+
+    #[test]
+    fn select_from() {
+        let maybe_output: Vec<Token> = vec![
+            Token::Command(
+                C::SELECT,
+            ),
+            Token::Value(
+                V::Column(
+                    "*".to_string(),
+                ),
+            ),
+            Token::Command(
+                C::FROM,
+            ),
+            Token::Value(
+                V::Table(
+                    "table".to_string(),
+                ),
+            ),
+
+        ];
+        let mut lexer = Lexer::new("SELECT * FROM table;");
+        assert_eq!(maybe_output, lexer.exec());
+    }
+
 }
+

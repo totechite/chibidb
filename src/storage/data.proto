@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+message TupleData{
+    enum Type {
+        INT = 0;
+        STRING = 1;
+    }
+
+    Type type = 3;
+    int32 number = 4;
+    string string = 5;
+}
+
+message Tuple {
+    uint32 id = 1;
+    uint32 minTxId = 2;
+    uint32 maxTxId = 3;
+    repeated TupleData data = 4;
+}
