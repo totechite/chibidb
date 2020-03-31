@@ -72,7 +72,6 @@ pub mod function {
             let mut tuple_address = PAGE_SIZE;
             let mut total_size = HEADER;
             for (i, t) in p.tuples.iter().enumerate() {
-                println!("length:{:?}, {:?}", p.tuples.len(), p.tuples);
                 let (tuple, slot) = {
                     let tuple = serialize_tuple(t.clone())?;
                     let tuple_len = tuple.len();

@@ -22,7 +22,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 #[cfg(target_os = "windows")]
 fn set_env() {
 //  Reference to https://doc.rust-lang.org/cargo/reference/build-scripts.html
-    println!("cargo:rustc-env=CHIBIDB_ROOT_PATH=../");
-    println!("cargo:rustc-env=CHIBIDB_SCHEME_PATH=../schemes/");
-    println!("cargo:rustc-env=CHIBIDB_DATA_PATH=../data/");
+    println!("cargo:rustc-env=CHIBIDB_ROOT_PATH=./");
+    println!("cargo:rustc-env=CHIBIDB_SCHEME_PATH=./schemes/");
+    println!("cargo:rustc-env=CHIBIDB_DATA_PATH=./data/");
 }

@@ -1,10 +1,10 @@
-mod data;
-mod page;
+pub mod data;
+pub mod page;
 mod tuple;
 mod disk_manager;
 mod catalog;
 mod buffer_pool;
-mod storage;
+pub mod storage;
 
 mod magic_number {
     pub(crate) const PAGE_SIZE: usize = 8192; // 8KB
@@ -34,12 +34,8 @@ pub mod util {
 
     #[derive(Serialize, Deserialize, Clone, Debug)]
     pub enum ColumnType {
-        text,
+        integer,
         varchar(usize),
-        char(usize),
-        bigint,
-        real,
-        bool,
     }
 
     #[derive(Serialize, Deserialize, Clone, Debug)]
