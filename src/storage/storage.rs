@@ -6,8 +6,9 @@ use crate::storage::disk_manager;
 use std::hash::Hash;
 use crate::storage::page::Page;
 use std::path::PathBuf;
-use std::fs::{read_dir, DirEntry};
+use std::fs::{read_dir, DirEntry, File};
 use std::cell::RefCell;
+use crate::sql::plan::{Type, FieldDefinition};
 
 #[derive(Default, Debug)]
 pub struct Storage {
@@ -50,7 +51,30 @@ impl Storage {
                 }
             };
         }
-        (scheme,pages)
+        (scheme, pages)
+    }
+
+    pub fn create_table(&mut self, table_name: String, fields: Vec<FieldDefinition>) -> bool {
+        let path = {
+            let mut path = PathBuf::new();
+            [&std::env::var("CHIBIDB_DATA_PATH").unwrap(), &table_name].iter().for_each(|p| path.push(p));
+            path
+        };
+        match File::create(path) {
+            Ok(_) => {
+                let table_id = gen_hash(&table_name);
+                let scheme = Scheme {
+                    table_id,
+                    table_name,
+                    page_num: 0,
+                    column: fields.into_iter().map(|f| (f.T, f.name)).collect::<Vec<(Type, String)>>(),
+                    index: Vec::new(),
+                };
+                self.catalog.schemes.insert(table_id, scheme);
+                return true;
+            }
+            Err(_) => false
+        }
     }
 }
 

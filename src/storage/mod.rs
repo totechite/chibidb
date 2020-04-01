@@ -15,6 +15,7 @@ pub mod util {
     use std::collections::hash_map::DefaultHasher;
     use serde::{Serialize, Deserialize};
     use crate::storage::page::Page;
+    use crate::sql::plan::Type;
 
     pub(crate) fn gen_hash(t: &impl Hash) -> u64 {
         let mut s = DefaultHasher::new();
@@ -32,11 +33,11 @@ pub mod util {
         b.to_vec()
     }
 
-    #[derive(Serialize, Deserialize, Clone, Debug)]
-    pub enum ColumnType {
-        integer,
-        varchar(usize),
-    }
+//    #[derive(Serialize, Deserialize, Clone, Debug)]
+//    pub enum ColumnType {
+//        integer,
+//        varchar(usize),
+//    }
 
     #[derive(Serialize, Deserialize, Clone, Debug)]
     pub struct Scheme {
@@ -44,9 +45,9 @@ pub mod util {
         pub table_name: String,
         pub page_num: u16,
         // keep order of field.
-        pub column: Vec<(ColumnType, String)>,
+        pub column: Vec<(Type, String)>,
         // don't need keep order.
-        pub index: Vec<(ColumnType, String)>,
+        pub index: Vec<(Type, String)>,
     }
 
     #[derive(Default, Clone, Debug)]

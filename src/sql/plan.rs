@@ -1,3 +1,5 @@
+use serde::{Serialize, Deserialize};
+
 trait Command {}
 
 struct Plan {
@@ -60,23 +62,25 @@ pub enum SearchCondition {
     NOT(Box<SearchCondition>),
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub enum Value {
     String(String),
     Number(isize),
 }
 
-
+#[derive(Clone, Debug, PartialEq)]
 pub struct FieldDefinition {
-    name: String,
-    T: Type,
+    pub name: String,
+    pub T: Type,
     constraint: Option<Vec<Constraint>>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub enum Constraint {
     PRIMARY_KEY(Vec<String>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum Type {
     integer,
     varchar(u32),

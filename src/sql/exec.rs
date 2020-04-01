@@ -34,7 +34,11 @@ impl Executor {
         println!("{:#?}", display_records);
     }
 
-    pub fn create_table(c: CREATE) {}
+    pub fn create_table(&mut self, c: CREATE) {
+        if let Some((table_name, fields)) = c.TABLE{
+            self.storage.create_table(table_name, fields);
+        }
+    }
 
     pub fn insert() {}
 
