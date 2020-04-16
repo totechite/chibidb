@@ -57,3 +57,24 @@ pub mod util {
         pub page: Page,
     }
 }
+
+mod test {
+    use crate::storage::storage::Storage;
+    use crate::storage::catalog::Catalog;
+    use crate::storage::util::Scheme;
+    use std::fs::{remove_dir_all};
+
+    #[test]
+    fn save_scheme(){
+        let s = Scheme{
+            table_id: 1,
+            table_name: "test_scheme".to_string(),
+            page_num: 1,
+            column: Vec::new(),
+            index: Vec::new()
+
+        };
+        let mut storage = Storage::new();
+        storage.catalog.save(s).unwrap();
+    }
+}

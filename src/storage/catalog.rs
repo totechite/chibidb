@@ -1,6 +1,6 @@
 use std::env;
 use crate::storage::util::Scheme;
-use std::fs::{File, ReadDir, read_dir};
+use std::fs::{File, ReadDir, read_dir, create_dir};
 use std::io::{BufWriter, IntoInnerError, Error, Write, Read};
 use std::env::VarError;
 use std::collections::{HashSet, HashMap};
@@ -14,15 +14,16 @@ pub struct Catalog {
 }
 
 impl Catalog {
-    fn add(&mut self, s: Scheme) {
-        self.schemes.insert(s.table_id, s);
+    pub fn add(&mut self, s: Scheme) {
+        self.schemes.insert(s.table_id, s.clone());
+        self.save(s).unwrap();
     }
 }
 
 impl Catalog {
     fn new() -> Self { Default::default() }
 
-    pub fn save(s: Scheme) -> Result<(), Error> {
+    pub fn save(&self, s: Scheme) -> Result<(), Error> {
         let mut f = {
             let SCHEME_PATH = env::var("CHIBIDB_SCHEME_PATH").unwrap();
             let mut path = PathBuf::from(SCHEME_PATH);
@@ -39,15 +40,21 @@ impl Catalog {
         let mut schemes = HashMap::new();
         let mut scheme_dir = {
             let SCHEME_PATH = env::var("CHIBIDB_SCHEME_PATH").unwrap();
-            read_dir(format!("{:?}", SCHEME_PATH))?
+            let path = Path::new(&SCHEME_PATH);
+            if !path.exists() {
+                create_dir(&path).unwrap();
+            }
+            read_dir( path)
         };
-        for f in scheme_dir {
-            let mut buf = [0u8; PAGE_SIZE] ;
-            File::open(f?.file_name())?.read(&mut buf)?;
-            let scheme: Scheme = serde_json::from_slice::<Scheme>(&buf)?;
-            schemes.insert(scheme.table_id, scheme);
+        if let Ok(scheme_dir) = scheme_dir {
+            for f in scheme_dir {
+                let p = f?.path();
+                let mut buf = Vec::new();
+                File::open(p)?.read_to_end(&mut buf)?;
+                let scheme: Scheme = serde_json::from_slice::<Scheme>(&buf)?;
+                schemes.insert(scheme.table_id, scheme);
+            }
         }
         Ok(Catalog { schemes })
     }
-
 }

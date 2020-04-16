@@ -72,7 +72,7 @@ pub enum Value {
 pub struct FieldDefinition {
     pub name: String,
     pub T: Type,
-    constraint: Option<Vec<Constraint>>,
+    // constraint: Option<Vec<Constraint>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]

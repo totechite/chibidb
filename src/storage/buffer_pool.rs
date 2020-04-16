@@ -4,9 +4,9 @@ use crate::storage::util::{gen_hash, PageAuxiliar};
 use std::rc::Rc;
 
 
-// 実際はLRUではなく、近似アルゴリズムであるG-CLOCK(GeneralizeCLOCK)を参考に実装された。
+// G-CLOCK(GeneralizeCLOCK)はLRUの近似アルゴリズムとして知られている。
 #[derive(Default, Debug)]
-struct LRU {
+struct G_CLOCK {
     hand_pointer: usize,
     evict_list: Vec<(u64, usize)>,
     items: HashMap<u64, PageAuxiliar>,
@@ -14,14 +14,14 @@ struct LRU {
 
 #[derive(Default, Debug)]
 pub struct BufferPool {
-    lru: LRU,
+    g_clock: G_CLOCK,
 }
 
-impl LRU {
+impl G_CLOCK {
     pub fn new() { Default::default() }
 }
 
-impl LRU {
+impl G_CLOCK {
     pub fn get(&mut self, hash: &u64) -> Option<&PageAuxiliar> {
         self.move_hand();
         if let Some(item) = self.items.get(hash) {
@@ -36,7 +36,7 @@ impl LRU {
     }
 }
 
-impl LRU {
+impl G_CLOCK {
     fn move_hand(&mut self) {
         match self.evict_list.get(self.hand_pointer) {
             Some(&(hash, counter)) => {
@@ -64,6 +64,6 @@ impl BufferPool {
 impl BufferPool {
     pub fn read_page(&mut self, table_id: u64, page_id: u16) -> Option<&PageAuxiliar> {
         let hash = gen_hash(&(table_id + page_id as u64));
-        self.lru.get(&hash)
+        self.g_clock.get(&hash)
     }
 }
