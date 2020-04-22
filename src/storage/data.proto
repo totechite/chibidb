@@ -4,6 +4,7 @@ message TupleData{
     enum Type {
         INT = 0;
         STRING = 1;
+        NULL = 2;
     }
 
     Type type = 3;

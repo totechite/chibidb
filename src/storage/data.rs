@@ -259,6 +259,7 @@ impl ::protobuf::reflect::ProtobufValue for TupleData {
 pub enum TupleData_Type {
     INT = 0,
     STRING = 1,
+    NULL = 2,
 }
 
 impl ::protobuf::ProtobufEnum for TupleData_Type {
@@ -270,6 +271,7 @@ impl ::protobuf::ProtobufEnum for TupleData_Type {
         match value {
             0 => ::std::option::Option::Some(TupleData_Type::INT),
             1 => ::std::option::Option::Some(TupleData_Type::STRING),
+            2 => ::std::option::Option::Some(TupleData_Type::NULL),
             _ => ::std::option::Option::None
         }
     }
@@ -278,6 +280,7 @@ impl ::protobuf::ProtobufEnum for TupleData_Type {
         static values: &'static [TupleData_Type] = &[
             TupleData_Type::INT,
             TupleData_Type::STRING,
+            TupleData_Type::NULL,
         ];
         values
     }
@@ -583,14 +586,14 @@ impl ::protobuf::reflect::ProtobufValue for Tuple {
 }
 
 static file_descriptor_proto_data: &'static [u8] = b"\
-    \n\x16src/storage/data.proto\"}\n\tTupleData\x12#\n\x04type\x18\x03\x20\
-    \x01(\x0e2\x0f.TupleData.TypeR\x04type\x12\x16\n\x06number\x18\x04\x20\
-    \x01(\x05R\x06number\x12\x16\n\x06string\x18\x05\x20\x01(\tR\x06string\"\
-    \x1b\n\x04Type\x12\x07\n\x03INT\x10\0\x12\n\n\x06STRING\x10\x01\"k\n\x05\
-    Tuple\x12\x0e\n\x02id\x18\x01\x20\x01(\rR\x02id\x12\x18\n\x07minTxId\x18\
-    \x02\x20\x01(\rR\x07minTxId\x12\x18\n\x07maxTxId\x18\x03\x20\x01(\rR\x07\
-    maxTxId\x12\x1e\n\x04data\x18\x04\x20\x03(\x0b2\n.TupleDataR\x04datab\
-    \x06proto3\
+    \n\x16src/storage/data.proto\"\x87\x01\n\tTupleData\x12#\n\x04type\x18\
+    \x03\x20\x01(\x0e2\x0f.TupleData.TypeR\x04type\x12\x16\n\x06number\x18\
+    \x04\x20\x01(\x05R\x06number\x12\x16\n\x06string\x18\x05\x20\x01(\tR\x06\
+    string\"%\n\x04Type\x12\x07\n\x03INT\x10\0\x12\n\n\x06STRING\x10\x01\x12\
+    \x08\n\x04NULL\x10\x02\"k\n\x05Tuple\x12\x0e\n\x02id\x18\x01\x20\x01(\rR\
+    \x02id\x12\x18\n\x07minTxId\x18\x02\x20\x01(\rR\x07minTxId\x12\x18\n\x07\
+    maxTxId\x18\x03\x20\x01(\rR\x07maxTxId\x12\x1e\n\x04data\x18\x04\x20\x03\
+    (\x0b2\n.TupleDataR\x04datab\x06proto3\
 ";
 
 static mut file_descriptor_proto_lazy: ::protobuf::lazy::Lazy<::protobuf::descriptor::FileDescriptorProto> = ::protobuf::lazy::Lazy::INIT;

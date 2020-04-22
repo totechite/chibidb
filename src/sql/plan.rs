@@ -17,7 +17,7 @@ pub struct CREATE {
 }
 
 pub struct INSERT {
-    pub INTO: Option<(String, Option<Vec<String>>)>,
+    pub INTO: (String, Option<Vec<String>>), // (tableName, Vec<field>)
     pub VALUES: Vec<Vec<String>>,
 }
 
@@ -83,7 +83,7 @@ pub enum Constraint {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum Type {
     integer,
-    varchar(u32),
+    text,
 }
 
 

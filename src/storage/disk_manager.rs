@@ -14,12 +14,19 @@ pub fn read_page(path: &Path) -> Result<Page, std::io::Error> {
     Ok(deserialize_page(buf)?)
 }
 
-pub fn create_page(p: &Page) -> Result<(), std::io::Error> {
+pub fn create_page(p: &Page, table_name: String) -> Result<(), std::io::Error> {
     let mut buf = {
-        let mut file = File::create(format!("{:?}.page", p.id))?;
+        let mut file = File::create(format!("{}{}/{:?}.page", std::env::var("CHIBIDB_DATA_PATH").unwrap(), table_name, p.id))?;
         BufWriter::new(file)
     };
     let (bytes, surplus) = serialize_page(p)?;
+    if let Some(surplus) = surplus {
+        create_page(&Page {
+            id: p.id + 1,
+            tuples: surplus,
+        }, table_name)?;
+    }
     buf.write(&bytes)?;
     Ok(())
 }
+

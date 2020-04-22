@@ -1,10 +1,11 @@
-use crate::sql::plan::{SELECT, Field, Table, CREATE};
+use crate::sql::plan::{SELECT, Field, Table, CREATE, INSERT};
 use std::collections::HashMap;
 use crate::storage::util::{gen_hash, PageAuxiliar, Scheme};
 use crate::storage::storage::Storage;
 use crate::storage::page::Page;
 use std::ops::Index;
 use crate::storage::data::{TupleData, TupleData_Type};
+use protobuf::well_known_types::Type;
 
 pub struct Executor {
     storage: Storage
@@ -35,12 +36,29 @@ impl Executor {
     }
 
     pub fn create_table(&mut self, c: CREATE) {
-        if let Some((table_name, fields)) = c.TABLE{
+        if let Some((table_name, fields)) = c.TABLE {
             self.storage.create_table(table_name, fields);
         }
     }
 
-    pub fn insert() {}
+    pub fn insert(&mut self, i: INSERT) {
+        let table_name = i.INTO.0;
+        let records = i.VALUES;
+        let scheme = self.storage.catalog.schemes.get(&gen_hash(&table_name)).unwrap();
+        let mut optional_records = vec![vec![]];
+        let fields = if let Some(fields) = i.INTO.1 {
+            for (idx, sch )in scheme.column.iter().enumerate() {
+                let mut optional_record = vec![];
+                if fields.contains(&sch.1){
+                    for record in &records {
+                        optional_record.push(Some(record[idx].clone()))
+                    }
+                }else { optional_record.push(None); }
+                optional_records.push(optional_record);
+            }
+        } else { optional_records =  records.iter().map(|record| record.iter().map(|v|Some(v.clone())).collect::<Vec<Option<String>>>()).collect::<Vec<Vec<Option<String>>>>(); };
+        self.storage.insert_records(scheme, optional_records);
+    }
 
     fn get_table(&mut self, tables: Vec<Table>) -> HashMap<u64, (&Scheme, Vec<PageAuxiliar>)> {
         let mut hashmap = HashMap::new();
@@ -61,7 +79,8 @@ fn get_column(table: &Vec<PageAuxiliar>, index: usize) -> Vec<String> {
         .map(|td| {
             match td.field_type {
                 TupleData_Type::INT => format!("{:?}", td.number),
-                TupleData_Type::STRING => format!("{:?}", td.string)
+                TupleData_Type::STRING => format!("{:?}", td.string),
+                TupleData_Type::NULL => format!("null"),
             }
         }).collect::<Vec<String>>()
 }
