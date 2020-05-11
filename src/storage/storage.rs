@@ -71,7 +71,7 @@ impl Storage {
         };
         let mut page_paths = {
             let mut path = PathBuf::new();
-            for s in [std::env::var("CHIBIDB_DATA_PATH").unwrap(), scheme.table_id.to_string()].iter() {
+            for s in [std::env::var("CHIBIDB_DATA_PATH").unwrap(), table_name.to_string()].iter() {
                 path.push(s);
             }
             read_dir(path).unwrap()
@@ -123,6 +123,7 @@ impl Storage {
 mod test {
     use crate::storage::storage::Storage;
     use crate::sql::plan::{FieldDefinition, Type};
+    use crate::storage::util::gen_hash;
 
     #[test]
     fn create_table() {
@@ -133,6 +134,22 @@ mod test {
         ];
         let mut s = Storage::new();
         s.create_table(table_name, fields);
+    }
+
+    #[test]
+    fn insert(){
+        let mut storage = Storage::new();
+        let scheme = storage.catalog.schemes.get(&gen_hash(&"test_table".to_string())).unwrap();
+        storage.insert_records(scheme, vec![vec![Some("1".to_string()), Some("aaa".to_string())], vec![Some("2".to_string()), Some("bbb".to_string())]]);
+
+
+    }
+
+    #[test]
+    fn read(){
+        let mut storage = Storage::new();
+        let page = storage.read_table("test_table").1;
+        println!("{:?}", page);
     }
 }
 

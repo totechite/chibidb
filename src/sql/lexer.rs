@@ -2,6 +2,9 @@ use regex::Regex;
 use std::string::ToString;
 use std::iter::FromIterator;
 use crate::sql::token::{Token, Operator};
+use crate::sql::plan::{SELECT, Field, Table, SearchCondition, CREATE, FieldDefinition, Type};
+use crate::sql::token::Token::Condition;
+use protobuf::well_known_types::Field_Kind::TYPE_BOOL;
 
 pub fn noise_scanner(c: char) -> bool {
     (' ' == c) || ('\n' == c) || (',' == c)
@@ -13,15 +16,10 @@ pub struct Lexer {
 }
 
 #[derive(Debug)]
-struct SyntaxChecker
+struct Tokenizer
 {
     query_string: String,
     token_list: Vec<String>,
-}
-
-#[derive(Debug)]
-struct Tokenizer {
-    plain_token_list: Vec<String>
 }
 
 impl Lexer {
@@ -31,7 +29,7 @@ impl Lexer {
 //    }
 }
 
-impl SyntaxChecker {
+impl Tokenizer {
     fn new(qs: &str) -> Self {
         let qs = String::from(qs);
         Self {
@@ -42,43 +40,38 @@ impl SyntaxChecker {
 
     fn exec(query_string: String) -> Vec<String> {
         let mut char_stack: Option<Vec<char>> = None;
-        let mut op_stack: Option<Vec<char>> = None;
         let mut token_list: Vec<String> = vec![];
         let mut chars = query_string.chars();
 
         while let Some(char) = chars.next() {
-            // consume end
-            if ';' == char {
+            let mut dump_to_list = || {
                 if let Some(chars) = char_stack.take() {
                     let string = String::from_iter(chars);
                     token_list.push(string);
                 }
+            };
+
+            // consume end
+            if ';' == char {
+                dump_to_list();
+                token_list.push(char.to_string());
                 break;
             };
             // consume whitespace
             if ' ' == char {
-                if let Some(chars) = char_stack.take() {
-                    let string = String::from_iter(chars);
-                    token_list.push(string);
-                }
+                dump_to_list();
                 continue;
             };
             // consume comma
             if ',' == char {
-                if let Some(chars) = char_stack.take() {
-                    let string = String::from_iter(chars);
-                    token_list.push(string);
-                }
+                dump_to_list();
                 token_list.push(char.to_string());
                 continue;
             };
             // try operator
             match char {
                 '<' | '>' | '=' | '!' => {
-                    if let Some(chars) = char_stack.take() {
-                        let string = String::from_iter(chars);
-                        token_list.push(string);
-                    }
+                    dump_to_list();
                     if let Some(c) = chars.next() {
                         match c {
                             '=' => {
@@ -101,18 +94,12 @@ impl SyntaxChecker {
             // try paren
             match char {
                 '(' => {
-                    if let Some(str) = char_stack.take() {
-                        let str = String::from_iter(str);
-                        token_list.push(str);
-                    };
+                    dump_to_list();
                     token_list.push(char.to_string());
                     continue;
                 }
                 ')' => {
-                    if let Some(str) = char_stack.take() {
-                        let str = String::from_iter(str);
-                        token_list.push(str);
-                    };
+                    dump_to_list();
                     token_list.push(char.to_string());
                     continue;
                 }
@@ -125,9 +112,82 @@ impl SyntaxChecker {
                 Some(str)
             } else { Some(vec![char]) };
         }
-        token_list.reverse();
+
         return token_list;
     }
+}
+
+
+pub fn select_parse(token: Vec<String>) -> SELECT {
+    let token = token.into_iter();
+    let mut select = vec![];
+    let mut from = vec![];
+    let mut where_expr = vec![];
+    let mut temp = vec![];
+    for t in token {
+        match t.as_str() {
+            ";" => where_expr.append(&mut temp),
+            "WHERE" => from.append(&mut temp),
+            "FROM" => select.append(&mut temp),
+            "ORDER" => panic!(),
+            default => temp.push(t)
+        }
+    }
+
+
+    let mut query = SELECT { fields: vec![], FROM: None, WHERE: None };
+    for t in select.into_iter() {
+        if (t == "SELECT") || (t == ",") {
+            continue;
+        }
+        if t == "*" {
+            query.fields.push(Field::All);
+            break;
+        }
+        query.fields.push(Field::Plain { name: t, table_name: None, AS: None });
+    }
+    if from != Vec::new() as Vec<String> {
+        query.FROM = Some(from);
+    }
+    query
+}
+
+pub fn create_parse(token: Vec<String>) -> CREATE {
+    let mut query = CREATE { TABLE: None };
+    let mut token_iter = token.into_iter();
+    token_iter.next().unwrap(); // CREATE
+    token_iter.next().unwrap(); // TABLE
+    let table_name = token_iter.next().unwrap();
+    let mut fields = vec![];
+    while let Some(t) = token_iter.next() {
+        match t.as_str() {
+            "(" => {}
+            ")"|";" => { break; }
+            "," => {}
+            default => {
+                let mut field_name = t;
+                let mut field_type = Type::text;
+
+                if let Some(n_t) = token_iter.next() {
+                    match n_t.as_str() {
+                        "int" => {
+                            field_type = Type::integer;
+                        }
+                        "text" => {
+                            field_type = Type::text;
+                        }
+                        default => {
+                            panic!()
+                        }
+                    }
+                    fields.push(FieldDefinition { name: field_name, T: field_type })
+                }
+            }
+        }
+    }
+
+    query.TABLE = Some((table_name, fields));
+    query
 }
 
 //impl Tokenizer {
@@ -276,13 +336,26 @@ impl SyntaxChecker {
 
 #[cfg(test)]
 mod test {
-    use crate::sql::lexer::{Lexer, SyntaxChecker};
+    use crate::sql::lexer::{Lexer, Tokenizer};
+    use crate::sql::exec::Executor;
+    use crate::storage::storage::Storage;
+    use crate::storage::util::gen_hash;
 
     #[test]
-    fn select_from() {}
+    fn select_from() {
+        let mut exec = Executor { storage: Storage::new() };
+        let sql = "SELECT * FROM test_table WHERE age>=20;";
+        println!("{:?}", gen_hash(&"test_table".to_string()));
+        println!("{:?}", exec.parse(Tokenizer::exec(sql.to_string())));
+    }
 
     #[test]
-    fn create_table() {}
+    fn create_table() {
+        let mut exec = Executor { storage: Storage::new() };
+        let sql = "CREATE TABLE aaa(id int , item_name text);";
+        println!("{:?}", Tokenizer::exec(sql.to_string()));
+        exec.parse(Tokenizer::exec(sql.to_string()));
+    }
 
     #[test]
     fn insert() {}

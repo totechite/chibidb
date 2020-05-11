@@ -6,21 +6,25 @@ struct Plan {
     command: dyn Command
 }
 
+#[derive(Debug)]
 pub struct SELECT {
     pub fields: Vec<Field>,
-    pub FROM: Option<Vec<Table>>,
+    pub FROM: Option<Vec<String>>,
     pub WHERE: Option<SearchCondition>,
 }
 
+#[derive(Debug)]
 pub struct CREATE {
     pub TABLE: Option<(String, Vec<FieldDefinition>)>
 }
 
 pub struct INSERT {
-    pub INTO: (String, Option<Vec<String>>), // (tableName, Vec<field>)
+    pub INTO: (String, Option<Vec<String>>),
+    // (tableName, Vec<field>)
     pub VALUES: Vec<Vec<String>>,
 }
 
+#[derive(Debug)]
 pub enum Field {
     All,
     Plain { name: String, table_name: Option<String>, AS: Option<String> },
@@ -33,6 +37,7 @@ pub struct Table {
     pub AS: Option<String>,
 }
 
+#[derive(Debug)]
 pub enum Expression {
     //    User defined value.
 
@@ -50,6 +55,7 @@ pub enum Expression {
     Div(Box<Expression>, Box<Expression>),
 }
 
+#[derive(Debug)]
 pub enum SearchCondition {
     Equal(Value, Value),
     NotEqual(Value, Value),
