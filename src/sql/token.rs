@@ -17,35 +17,53 @@ pub enum Token {
     DATABASE,
     PRIMARY,
     KEY,
+    AS,
 
     //    DATA TYPE
     integer,
-    varchar,
+    text,
 
     //    User defined values
-    ColumnName(String),
-    TableName(String),
-    Condition(Operator),
+
+    Phrase(String),
+    Computation(ArithmeticOperator),
+    Condition(LogicalOperator),
 
     //    meta
     EOF,
 }
 
 #[derive(Debug, PartialEq)]
-pub enum Value {
+pub enum ValueOfLogicalOperator {
     String(String),
     Number(isize),
 }
 
 #[derive(Debug, PartialEq)]
-pub enum Operator {
-    Equal(Value, Value),
-    NotEqual(Value, Value),
-    GreaterThan(Value, Value),
-    LessThan(Value, Value),
-    EqualOrGreaterThan(Value, Value),
-    EqualOrLessThan(Value, Value),
-    AND(Box<Operator>, Box<Operator>),
-    OR(Box<Operator>, Box<Operator>),
-    NOT(Box<Operator>),
+pub enum LogicalOperator {
+    Equal(ValueOfLogicalOperator, ValueOfLogicalOperator),
+    NotEqual(ValueOfLogicalOperator, ValueOfLogicalOperator),
+    GreaterThan(ValueOfLogicalOperator, ValueOfLogicalOperator),
+    LessThan(ValueOfLogicalOperator, ValueOfLogicalOperator),
+    EqualOrGreaterThan(ValueOfLogicalOperator, ValueOfLogicalOperator),
+    EqualOrLessThan(ValueOfLogicalOperator, ValueOfLogicalOperator),
+    AND(Box<LogicalOperator>, Box<LogicalOperator>),
+    OR(Box<LogicalOperator>, Box<LogicalOperator>),
+    NOT(Box<LogicalOperator>),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum ValueOfArithmeticOperator {
+    String(String),
+    Number(isize),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum ArithmeticOperator {
+    Add(ValueOfArithmeticOperator, ValueOfArithmeticOperator),
+    Sub(ValueOfArithmeticOperator, ValueOfArithmeticOperator),
+    Div(ValueOfArithmeticOperator, ValueOfArithmeticOperator),
+    Mul(ValueOfArithmeticOperator, ValueOfArithmeticOperator),
+    Mod(ValueOfArithmeticOperator, ValueOfArithmeticOperator),
+
 }

@@ -1,119 +1,375 @@
 use regex::Regex;
 use std::string::ToString;
-use std::iter::FromIterator;
-use crate::sql::token::{Token, Operator};
+use std::iter::{FromIterator, Enumerate};
+use crate::sql::token::{Token};
 use crate::sql::plan::{SELECT, Field, Table, SearchCondition, CREATE, FieldDefinition, Type};
 use crate::sql::token::Token::Condition;
 use protobuf::well_known_types::Field_Kind::TYPE_BOOL;
+use std::collections::HashMap;
+use crate::sql::node::{SELECT_FROM_Declare, Column_Term, Column_Context, Table_Term, Table_Context, FROM_Declare, SELECT_Declare, JOIN_Declare, WHERE_Declare, ConditionTerm, OperatorTerm, LogicalOperator};
+use crate::sql::node::Table_Context::Literal;
+use std::thread;
+use std::sync::mpsc;
+use std::slice::Iter;
+use std::cell::RefCell;
 
 pub fn noise_scanner(c: char) -> bool {
     (' ' == c) || ('\n' == c) || (',' == c)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Lexer {
-    query_string: String
+    query_string: String,
+    tokens: Vec<String>,
 }
 
-#[derive(Debug)]
-struct Tokenizer
-{
-    query_string: String,
-    token_list: Vec<String>,
-}
 
 impl Lexer {
-//    pub fn exec(query_string: impl ToString) -> Vec<Token> {
-//        let fst_stage = SyntaxChecker::exec(query_string.to_string());
-//        Tokenizer::new(fst_stage).exec()
-//    }
-}
-
-impl Tokenizer {
-    fn new(qs: &str) -> Self {
-        let qs = String::from(qs);
+    pub fn new(tokens: Vec<String>) -> Self {
         Self {
-            query_string: qs.clone(),
-            token_list: vec![],
+            tokens,
+            ..Default::default()
         }
     }
 
-    fn exec(query_string: String) -> Vec<String> {
-        let mut char_stack: Option<Vec<char>> = None;
-        let mut token_list: Vec<String> = vec![];
-        let mut chars = query_string.chars();
-
-        while let Some(char) = chars.next() {
-            let mut dump_to_list = || {
-                if let Some(chars) = char_stack.take() {
-                    let string = String::from_iter(chars);
-                    token_list.push(string);
+    pub fn exec(&self) -> Vec<Token> {
+        let mut left_paren_counter = 0;
+        let mut right_paren_counter = 0;
+        for (idx, token) in self.tokens.iter().enumerate() {
+            match token.as_str() {
+                "(" => left_paren_counter += 1,
+                ")" => right_paren_counter += 1,
+                ";" => {
+                    if left_paren_counter != right_paren_counter {
+                        panic!("don't have much paren")
+                    }
                 }
-            };
+                "SELECT" => { self.select_from(); }
+                "CREATE" => {}
+                "TABLE" => {}
+                "INSERT" => {}
+                "DELETE" => {}
+                _ => {}
+            }
+        }
 
-            // consume end
-            if ';' == char {
-                dump_to_list();
-                token_list.push(char.to_string());
-                break;
-            };
-            // consume whitespace
-            if ' ' == char {
-                dump_to_list();
-                continue;
-            };
-            // consume comma
-            if ',' == char {
-                dump_to_list();
-                token_list.push(char.to_string());
-                continue;
-            };
-            // try operator
-            match char {
-                '<' | '>' | '=' | '!' => {
-                    dump_to_list();
-                    if let Some(c) = chars.next() {
-                        match c {
-                            '=' => {
-                                let operator = format!("{}{}", char, c);
-                                token_list.push(operator);
+        return vec![];
+    }
+
+    fn select_from(&self) {
+        let mut declare = SELECT_FROM_Declare::new();
+        declare.text = self.tokens.join(" ");
+
+
+        let (select_term, from_term,
+            join_term, where_term,
+            orderby_term, groupby_term) = self.split_to_terms();
+        println!("{:?}", select_term);
+        println!("{:?}", from_term);
+        println!("{:?}", where_term);
+
+        // parse SELECT
+        let select_declare = thread::spawn(move || Lexer::parse_select(select_term.as_slice()));
+
+        // parse FROM
+        let from_declare = thread::spawn(move || Lexer::parse_from(from_term.as_slice()));
+
+        // parse WHERE
+        let where_declare = if let Some(where_term) = where_term {
+            Some(Lexer::parse_where(where_term.as_slice()))
+        } else { None };
+
+        declare.select_term = select_declare.join().unwrap();
+        declare.from_term = from_declare.join().unwrap();
+        declare.where_term = where_declare;
+
+
+        println!("{:#?}", declare);
+    }
+
+    fn parse_select(select_term: &[String]) -> SELECT_Declare {
+        let mut select_declare = SELECT_Declare { text: select_term.join(" "), contents: vec![] };
+        let mut token_with_index = select_term.iter().enumerate();
+        while let Some((idx, token)) = token_with_index.next() {
+            match token.as_str() {
+                "SELECT" => continue,
+                _ => {
+                    let mut text = vec![token.as_str()];
+                    let column_context = {
+                        let mut sepalete = token.clone().split(".").map(|s| s.to_string()).collect::<Vec<String>>();
+                        sepalete.reverse();
+                        let column_name = sepalete.get(0).unwrap().clone();
+                        let attribute = sepalete.get(1).cloned();
+                        Column_Context::Literal { column_name, attribute }
+                    };
+                    let mut alias = None;
+                    if let Some((idx, expect_AS)) = token_with_index.next() {
+                        match expect_AS.as_str() {
+                            "AS" => {
+                                alias = Some(token_with_index.next().unwrap().1);
+                                text.append(&mut vec!["AS", &alias.unwrap()]);
                             }
+                            "," => {}
+                            _ => panic!()
+                        }
+                    }
+                    let column_term = Column_Term {
+                        text: text.join(" "),
+                        context: column_context,
+                        alias: alias.cloned(),
+                    };
+                    select_declare.contents.push(column_term);
+                }
+            }
+        }
+        select_declare
+    }
+
+    fn parse_from(from_term: &[String]) -> FROM_Declare {
+        let mut from_declare = FROM_Declare { text: from_term.join(" "), contents: vec![] };
+        let mut token_with_index = from_term.iter().enumerate();
+        while let Some((idx, token)) = token_with_index.next() {
+            match token.as_str() {
+                "FROM" => continue,
+                _ => {
+                    let mut text = vec![token.as_str()];
+                    let table_name = token.as_str();
+                    let mut alias = None;
+                    if let Some((idx, expected_alias)) = token_with_index.next() {
+                        match expected_alias.as_str() {
+                            "," => {} // do nothing
                             _ => {
-                                token_list.push(char.to_string());
-                                char_stack = if let Some(mut str) = char_stack {
-                                    str.push(c);
-                                    Some(str)
-                                } else { Some(vec![c]) };
+                                text.push(expected_alias.as_str());
+                                alias = Some(expected_alias.clone());
                             }
                         }
                     }
-                    continue;
+                    let table_term = Table_Term { text: text.join(" ").to_string(), context: Table_Context::Literal(table_name.to_string()), alias };
+                    from_declare.contents.push(table_term);
                 }
-                _ => {}
             }
-            // try paren
-            match char {
-                '(' => {
-                    dump_to_list();
-                    token_list.push(char.to_string());
-                    continue;
-                }
-                ')' => {
-                    dump_to_list();
-                    token_list.push(char.to_string());
-                    continue;
-                }
-                _ => {}
-            };
+        }
+        from_declare
+    }
 
-            // For making token
-            char_stack = if let Some(mut str) = char_stack {
-                str.push(char);
-                Some(str)
-            } else { Some(vec![char]) };
+    fn parse_where(where_term: &[String]) -> WHERE_Declare {
+        let mut token_with_index = where_term.iter().enumerate();
+        token_with_index.next().unwrap();
+        let content = Self::aux_parse_paren(&mut token_with_index);
+
+        let where_declare = WHERE_Declare { text: where_term.join(" "), content };
+        where_declare
+    }
+
+    fn aux_parse_paren(token_with_index: &mut Enumerate<Iter<String>>) -> Box<ConditionTerm> {
+        match Self::parse_paren(token_with_index).0 {
+            OperatorTerm::Operator(condition_term) => condition_term,
+            _ => panic!()
+        }
+    }
+
+    fn parse_paren(token_with_index: &mut Enumerate<Iter<String>>) -> (OperatorTerm<Box<ConditionTerm>>, String) {
+        let mut tmp_formula = None;
+        let mut text: RefCell<Vec<String>> = RefCell::new(vec![]);
+
+        fn v_parse(value: String) -> OperatorTerm<Box<ConditionTerm>> {
+            match value.parse::<usize>() {
+                Ok(num) => OperatorTerm::Number(num),
+                Err(_) => OperatorTerm::String(value),
+            }
         }
 
-        return token_list;
+        let gen_ConditionTerm = |operator: LogicalOperator, left_v: OperatorTerm<Box<ConditionTerm>>, right_v: OperatorTerm<Box<ConditionTerm>>| -> ConditionTerm {
+            return ConditionTerm { text: text.borrow_mut().join(" "), operator, left_v, right_v };
+        };
+
+        while let Some((idx, token)) = token_with_index.next() {
+            if token == "(" {
+                return Self::parse_paren(token_with_index);
+            }
+
+            if token == ")" {
+                return (tmp_formula.unwrap(), text.borrow_mut().join(" "));
+            }
+
+            match token.as_str() {
+                "AND" => {
+                    let operator = LogicalOperator::AND;
+                    let right_v = Self::parse_paren(token_with_index);
+                    text.borrow_mut().push(token.clone());
+                    text.borrow_mut().push(right_v.1.clone());
+                    let condition_term = gen_ConditionTerm(operator, tmp_formula.clone().unwrap(), right_v.0);
+                    tmp_formula = Some(OperatorTerm::Operator(Box::new(condition_term)));
+                }
+                "OR" => {
+                    let operator = LogicalOperator::OR;
+                    let right_v = Self::parse_paren(token_with_index);
+                    text.borrow_mut().push(token.clone());
+                    text.borrow_mut().push(right_v.1.clone());
+                    let condition_term = gen_ConditionTerm(operator, tmp_formula.clone().unwrap(), right_v.0);
+                    tmp_formula = Some(OperatorTerm::Operator(Box::new(condition_term)));
+                }
+                "NOT" => {}
+                "=" => {
+                    let operator = LogicalOperator::Equal;
+                    let right_v = Self::parse_paren(token_with_index);
+                    text.borrow_mut().push(token.clone());
+                    text.borrow_mut().push(right_v.1.clone());
+                    let condition_term = gen_ConditionTerm(operator, tmp_formula.clone().unwrap(), right_v.0);
+                    tmp_formula = Some(OperatorTerm::Operator(Box::new(condition_term)));
+                }
+                "<>" => {
+                    let operator = LogicalOperator::NotEqual;
+                    let right_v = Self::parse_paren(token_with_index);
+                    text.borrow_mut().push(token.clone());
+                    text.borrow_mut().push(right_v.1.clone());
+                    let condition_term = gen_ConditionTerm(operator, tmp_formula.clone().unwrap(), right_v.0);
+                    tmp_formula = Some(OperatorTerm::Operator(Box::new(condition_term)));
+                }
+                "<" => {
+                    let operator = LogicalOperator::LessThan;
+                    let right_v = Self::parse_paren(token_with_index);
+                    text.borrow_mut().push(token.clone());
+                    text.borrow_mut().push(right_v.1.clone());
+                    let condition_term = gen_ConditionTerm(operator, tmp_formula.clone().unwrap(), right_v.0);
+                    tmp_formula = Some(OperatorTerm::Operator(Box::new(condition_term)));
+                }
+                "<=" => {
+                    let operator = LogicalOperator::EqualOrLessThan;
+                    let right_v = Self::parse_paren(token_with_index);
+                    text.borrow_mut().push(token.clone());
+                    text.borrow_mut().push(right_v.1.clone());
+                    let condition_term = gen_ConditionTerm(operator, tmp_formula.clone().unwrap(), right_v.0);
+                    tmp_formula = Some(OperatorTerm::Operator(Box::new(condition_term)));
+                }
+                ">" => {
+                    let operator = LogicalOperator::GreaterThan;
+                    let right_v = Self::parse_paren(token_with_index);
+                    text.borrow_mut().push(token.clone());
+                    text.borrow_mut().push(right_v.1.clone());
+                    let condition_term = gen_ConditionTerm(operator, tmp_formula.clone().unwrap(), right_v.0);
+                    tmp_formula = Some(OperatorTerm::Operator(Box::new(condition_term)));
+                }
+                ">=" => {
+                    let operator = LogicalOperator::EqualOrGreaterThan;
+                    let right_v = Self::parse_paren(token_with_index);
+                    println!("{:?}", right_v);
+                    text.borrow_mut().push(token.clone());
+                    text.borrow_mut().push(right_v.1.clone());
+                    let condition_term = gen_ConditionTerm(operator, tmp_formula.clone().unwrap(), right_v.0);
+                    tmp_formula = Some(OperatorTerm::Operator(Box::new(condition_term)));
+                }
+                _ => {
+                    text.borrow_mut().push(token.clone());
+                    tmp_formula = Some(v_parse(token.clone()));
+                    println!("{:?}", tmp_formula);
+                    println!("{:?}", token_with_index);
+
+
+                    if let Some(expect_zero) = token_with_index.clone().position(|(_, str)| vec!["AND","OR","NOT"].contains(&str.as_str()) ) {
+                        println!("{:?}", token_with_index);
+
+                        if expect_zero==0{
+                            break
+                        }
+                    }
+
+                }
+            }
+        }
+        // println!("{:?}", tmp_formula);
+        return (tmp_formula.unwrap(), text.borrow_mut().join(" "));
+    }
+
+
+    fn split_to_terms(&self) -> (Vec<String>, Vec<String>, Option<Vec<String>>, Option<Vec<String>>, Option<Vec<String>>, Option<Vec<String>>) {
+        // SELECT FROM
+        let from_position = self.tokens.iter().position(|t| t == "FROM").unwrap();
+        let (select_term, mut from_term) = {
+            let (select_term, mut from_term) = self.tokens.split_at(from_position).clone();
+            (select_term.iter().map(String::from).collect::<Vec<String>>().to_vec(), from_term.into_iter().map(String::from).collect::<Vec<String>>().to_vec())
+        };
+
+        let join_position = self.tokens.iter().position(|t| t == "JOIN");
+        let where_position = self.tokens.iter().position(|t| t == "WHERE");
+        let orderby_position = self.tokens.iter().position(|t| t == "ORDER");
+        let groupby_position = self.tokens.iter().position(|t| t == "GROUP");
+        for position in vec![join_position, where_position, orderby_position, groupby_position] {
+            if let Some(position) = position {
+                let (_, term) = self.tokens.split_at(position).0.split_at(from_position);
+                from_term = term.into_iter().map(String::from).collect::<Vec<String>>().to_vec();
+                break;
+            }
+        }
+
+        // JOIN
+        let mut join_term = None;
+        if let Some(target_position) = join_position {
+            let mut term = self.tokens.split_at(target_position).1;
+            for position in vec![where_position, orderby_position, groupby_position] {
+                if let Some(position) = position {
+                    term = term.split_at(position).0;
+                    break;
+                }
+            }
+            join_term = Some(term.into_iter().map(String::from).collect::<Vec<String>>());
+        }
+
+        // WHERE
+        let mut where_term = None;
+        if let Some(target_position) = where_position {
+            let mut term = self.tokens.split_at(target_position).1;
+            println!("{:?}", term);
+            for position in vec![orderby_position, groupby_position] {
+                if let Some(position) = position {
+                    term = term.split_at(position).0;
+                    break;
+                }
+            }
+            where_term = Some(term.into_iter().map(String::from).collect::<Vec<String>>());
+        }
+
+        // ORDER BY
+        let mut orderby_term = None;
+        if let Some(target_position) = orderby_position {
+            let mut term = self.tokens.split_at(target_position).1;
+            for position in vec![groupby_position] {
+                if let Some(position) = position {
+                    term = term.split_at(position).0;
+                }
+            }
+            orderby_term = Some(term.into_iter().map(String::from).collect::<Vec<String>>());
+        }
+
+        // GROUP BY
+        let mut groupby_term = None;
+        if let Some(target_position) = groupby_position {
+            let mut term = self.tokens.split_at(target_position).1;
+            for position in vec![self.tokens.iter().position(|t| t == ";")] {
+                if let Some(position) = position {
+                    term = term.split_at(position).0;
+                    break;
+                }
+            }
+            groupby_term = Some(term.into_iter().map(String::from).collect::<Vec<String>>());
+        }
+
+        (select_term, from_term, join_term, where_term, orderby_term, groupby_term)
+    }
+}
+
+
+#[cfg(test)]
+mod lexer {
+    use crate::sql::tokenizer::Tokenizer;
+    use crate::sql::lexer::Lexer;
+
+    #[test]
+    fn select_from() {
+        let sql = "SELECT test_table.a, b AS total FROM test_table WHERE age>=20 AND (name='Smith' OR name = 'John');";
+        let tokens = Tokenizer::exec(sql.to_string());
+        println!("{:?}", tokens);
+        Lexer::new(tokens).exec();
     }
 }
 
@@ -162,7 +418,7 @@ pub fn create_parse(token: Vec<String>) -> CREATE {
     while let Some(t) = token_iter.next() {
         match t.as_str() {
             "(" => {}
-            ")"|";" => { break; }
+            ")" | ";" => { break; }
             "," => {}
             default => {
                 let mut field_name = t;
@@ -190,163 +446,21 @@ pub fn create_parse(token: Vec<String>) -> CREATE {
     query
 }
 
-//impl Tokenizer {
-//    fn new(tl: Vec<String>) -> Self {
-//        Tokenizer {
-//            plain_token_list: tl
-//        }
-//    }
-//
-//    fn exec(&mut self) -> Vec<Token> {
-//        let mut token_list = vec![];
-//        while let Some(pt) = self.plain_token_list.pop() {
-//            match pt.as_str() {
-//                "SELECT" => {
-//                    token_list.push(Token::SELECT);
-//                    self.select_tokenize(&mut token_list);
-//                }
-//                "INSERT" => {
-//                    token_list.push(Token::INSERT);
-////                  self.insert_tokenize();
-//                }
-//                "CREATE" => {
-//                    self.create_tokenize(&mut token_list);
-//                }
-//                "UPDATE" => {}
-//                "DELETE" => {}
-//                _ => { panic!("contained undefined keyword"); }
-//            }
-//        }
-//
-//        return token_list;
-//    }
-//}
-//
-//impl Tokenizer {
-////sub tokenizer
-//
-//    fn create_tokenize(&mut self, token_list: &mut Vec<Token>) {
-//        while let Some(pt) = self.plain_token_list.pop() {
-//            match pt.as_str() {
-//                "TABLE" => {
-//                    token_list.push(Token::CREATE);
-//                    self.create_table_tokenize(token_list);
-//                }
-//                "DATABASE" => { token_list.push(Token::CREATE) }
-//                _ => {}
-//            }
-//        }
-//    }
-//
-//    fn create_table_tokenize(&mut self, token_list: &mut Vec<Token>) {
-//        token_list.push(Token::TableName(self.plain_token_list.pop().unwrap()));
-//        while let Some(pt) = self.plain_token_list.pop() {
-//            match pt.as_str() {
-//                _ => {}
-//            }
-//        }
-//    }
-//
-//    fn select_tokenize(&mut self, token_list: &mut Vec<Token>) {
-//        while let Some(pt) = self.plain_token_list.pop() {
-//            match pt.as_str() {
-//                "FROM" => {
-//                    token_list.push(Token::FROM);
-//                    self.from_tokenize(token_list);
-//                }
-//                _ => {
-//                    token_list.push(Token::ColumnName(pt));
-//                }
-//            }
-//        }
-//    }
-//
-//    fn from_tokenize(&mut self, token_list: &mut Vec<Token>) {
-//        while let Some(pt) = self.plain_token_list.pop() {
-//            match pt.as_str() {
-//                ";" => {
-//                    token_list.push(Token::EOF);
-//                    break;
-//                }
-//                "WHERE" => {
-//                    token_list.push(Token::WHERE);
-//                    self.where_tokenize(token_list);
-//                }
-//                _ => {
-//                    token_list.push(Token::TableName(pt));
-//                }
-//            }
-//        }
-//    }
-//
-//    fn where_tokenize(&mut self, token_list: &mut Vec<Token>) {
-//        while let Some(pt) = self.plain_token_list.pop() {
-//            match pt.as_str() {
-//                "NOT" => {
-//                    let expression = {
-//                        let operator_kind = self.make_operator(Some(pt), None, None);
-//                        Token::Condition(Operator::NOT(Box::new(operator_kind)))
-//                    };
-//                    token_list.push(expression);
-//                }
-//                "AND" => {
-//                    let prev_token = match token_list.pop().unwrap() {
-//                        Token::Condition(operator) => operator,
-//                        _ => panic!("error")
-//                    };
-//                    token_list.push(Token::Condition(Operator::AND(Box::new(prev_token), Box::new(self.make_operator(None, None, None)))));
-//                }
-//                "OR" => {
-//                    let prev_token = match token_list.pop().unwrap() {
-//                        Token::Condition(operator) => operator,
-//                        _ => panic!("error")
-//                    };
-//                    token_list.push(Token::Condition(Operator::OR(Box::new(prev_token), Box::new(self.make_operator(None, None, None)))));
-//                }
-//                _ => {
-//                    let expression = {
-//                        let operator_kind = self.make_operator(Some(pt), None, None);
-//                        Token::Condition(operator_kind)
-//                    };
-//                    token_list.push(expression);
-//                }
-//            }
-//        }
-//    }
-//}
-//
-//impl Tokenizer {
-//    // Util
-//    fn make_operator(&mut self, left: Option<String>, operator: Option<String>, right: Option<String>) -> Operator {
-//        let maybe_left = if let Some(token) = left { token } else { self.plain_token_list.pop().unwrap() };
-//        let maybe_operator = if let Some(token) = operator { token } else { self.plain_token_list.pop().unwrap() };
-//        let maybe_right = if let Some(token) = right { token } else { self.plain_token_list.pop().unwrap() };
-//        let operator_kind = match maybe_operator.as_str() {
-//            "<" => Operator::LessThan(maybe_left.kind, maybe_right.kind),
-//            ">" => Operator::GreaterThan(maybe_left.kind, maybe_right.kind),
-//            "==" => Operator::Equal(maybe_left.kind, maybe_right.kind),
-//            "!=" => Operator::NotEqual(maybe_left.kind, maybe_right.kind),
-//            "<=" => Operator::EqualOrLessThan(maybe_left.kind, maybe_right.kind),
-//            ">=" => Operator::EqualOrGreaterThan(maybe_left.kind, maybe_right.kind),
-//            _ => panic!("syntax error")
-//        };
-//        return operator_kind;
-//    }
-//}
 
 #[cfg(test)]
 mod test {
-    use crate::sql::lexer::{Lexer, Tokenizer};
+    use crate::sql::lexer::{Lexer};
     use crate::sql::exec::Executor;
     use crate::storage::storage::Storage;
     use crate::storage::util::gen_hash;
+    use crate::sql::tokenizer::Tokenizer;
 
     #[test]
     fn select_from() {
         let mut exec = Executor { storage: Storage::new() };
-        let sql = "SELECT * FROM test_table WHERE age>=20;";
-        println!("{:?}", gen_hash(&"test_table".to_string()));
-        println!("{:?}", exec.parse(Tokenizer::exec(sql.to_string())));
+        let sql = "SELECT test_table.a, b, a + b AS total FROM test_table WHERE age>=20;";
+
+        println!("{:?}", Tokenizer::exec(sql.to_string()));
     }
 
     #[test]
